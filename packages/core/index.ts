@@ -1,12 +1,17 @@
 import { EmbeddingsRequest, Ollama, ProgressResponse } from "ollama";
 import { ChromaClient, Collection } from "chromadb";
 import {
+  COLLECTION_NAME,
   DEFAULT_CHROMA_DB,
   DEFAULT_OLLAMA_HOST,
   EMBEDDING_MODEL,
   IMAGE_DESCRIPTION_MODEL,
   IMAGE_DESCRIPTION_PROMPT,
+  INTERPRETER_MODEL,
+  INTERPRETER_PROMPT,
 } from "./constants";
+import { Screenshot } from "./types";
+import { log } from "./utils";
 
 import screenshot from "screenshot-desktop";
 
@@ -24,7 +29,11 @@ class LocalRecall {
     private options: { query: { maxResultsPerQuery: number } },
   ) { }
 
-  async init() {
+  async init(options?: { reset?: boolean }) {
+    if (options?.reset) {
+      await this.chromaClient.reset().catch(() => { });
+      await this.chromaClient.deleteCollection({ name: COLLECTION_NAME })
+    }
     this.screenshotCollection = await this.createScreenshotsCollection();
 
     const imageModelPullProgress = await this.ollamaClient.pull({
@@ -63,6 +72,7 @@ class LocalRecall {
     process.stdout.cursorTo(0); // Move cursor to the beginning of the line
   }
 
+  @log("Generating embeddings...")
   private async generateEmbeddings(
     prompts: string[],
     options?: { model?: string } & EmbeddingsRequest["options"],
@@ -79,6 +89,7 @@ class LocalRecall {
     );
   }
 
+  @log("Generating descriptions...")
   private async generateDescriptions(
     images: string[],
     options?: { model?: string; prompt?: string },
@@ -95,57 +106,75 @@ class LocalRecall {
     );
   }
 
-  private async createScreenshotsCollection() {
-    const collectionName = "recall-screenshots";
-    return this.chromaClient.getOrCreateCollection({ name: collectionName });
+  @log("Interpreting query...")
+  private async interpretQueryResults(
+    initialQuery: string,
+    queryResults: string[],
+    options?: { model?: string },
+  ) {
+    const stream = await this.ollamaClient.generate({
+      model: options?.model ?? INTERPRETER_MODEL,
+      prompt: INTERPRETER_PROMPT(initialQuery, queryResults),
+      stream: true,
+    });
+    return stream;
   }
 
-  private async takeScreenshots() {
+  private async createScreenshotsCollection() {
+    return this.chromaClient.getOrCreateCollection({ name: COLLECTION_NAME });
+  }
+
+  @log("Taking screenshots...")
+  private async takeScreenshots(): Promise<Screenshot[]> {
     const displays = await screenshot.listDisplays();
     return Promise.all(
       displays.map(async (display) => {
-        const s = await screenshot({ format: "jpg", screen: display.id });
+        const s = await screenshot({ format: "png", screen: display.id });
         return { data: s.toString("base64"), display };
       }),
     );
   }
 
-  public async record(options: { everyMs: number, maxScreenshots: number }) {
+  @log("Recording started")
+  public async record(options: { everyMs: number; maxScreenshotSets: number }) {
     if (!this.screenshotCollection) await this.init();
 
-    const screenshots: Awaited<ReturnType<typeof this.takeScreenshots>> = [];
-
-    while (screenshots.length < options.maxScreenshots) {
-      screenshots.push(...await this.takeScreenshots());
+    const screenshots: Screenshot[] = [];
+    for (let idx = 0; idx < options.maxScreenshotSets; idx++) {
+      screenshots.push(...(await this.takeScreenshots()));
       await delay(options.everyMs);
     }
 
+    await this.describeScreenshots(screenshots);
+  }
 
+  private async describeScreenshots(screenshots: Screenshot[]) {
     const now = new Date();
     const timestamp = now.getTime();
     const descriptions = await this.generateDescriptions(
       screenshots.map(({ data }) => data),
     );
-
-    console.log({ descriptions });
     const embeddings = await this.generateEmbeddings(descriptions);
 
-    for (let idx = 0; idx < screenshots.length; idx++) {
-      const screenshot = screenshots[idx]!;
-      const description = descriptions[idx]!;
-      const embedding = embeddings[idx]!;
+    for (
+      let screenshotIdx = 0;
+      screenshotIdx < screenshots.length;
+      screenshotIdx++
+    ) {
+      const screenshot = screenshots[screenshotIdx]!;
+      const description = descriptions[screenshotIdx]!;
+      const embedding = embeddings[screenshotIdx]!;
 
       const id = `${timestamp}-${screenshot.display.name}-${screenshot.display.id}`;
       await this.screenshotCollection!.add({
         ids: [id],
         embeddings: [embedding],
-        documents: [
-          `DATE-AND-TIME: ${now.toISOString()}, DESCRIPTION: ${description}`,
-        ],
+        documents: [`DATE-AND-TIME: ${now}, DESCRIPTION: ${description}`],
       });
     }
   }
 
+  @log("Querying...")
   public async query(prompt: string, options?: { maxResults?: number }) {
     if (!this.screenshotCollection) await this.init();
 
@@ -159,18 +188,16 @@ class LocalRecall {
     });
     const documents =
       results.documents[0]?.flatMap((d) => (d ? [d] : [])) ?? [];
-    const ids = results.ids[0] ?? [];
 
-    if (documents.length === 0 || ids.length === 0)
+    if (documents.length === 0)
       return {
-        results: [],
+        stream: null,
         error:
           "I couldn't find any relevant information related to that query.",
       };
 
-    return {
-      results: documents.map((d, idx) => ({ id: ids[idx], doc: d })),
-    };
+    const stream = await this.interpretQueryResults(prompt, documents);
+    return { stream };
   }
 }
 
