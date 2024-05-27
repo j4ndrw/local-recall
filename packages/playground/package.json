@@ -1,0 +1,21 @@
+{
+  "name": "@j4ndrw/local-recall-playground",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node18.18 --outdir=dist --external:cohere-ai --sourcemap",
+    "start": "rm -rf dist && pnpm run build && node ./dist/index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@j4ndrw/local-recall-core": "workspace:*",
+    "chromadb": "^1.8.1",
+    "ollama": "^0.5.1"
+  },
+  "devDependencies": {
+    "dotenv": "^16.4.5",
+    "esbuild": "^0.21.4"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "@j4ndrw/local-recall-core",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.ts",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "chromadb": "^1.8.1",
+    "ollama": "^0.5.1",
+    "screenshot-desktop": "^1.15.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.12",
+    "@types/screenshot-desktop": "^1.12.3"
+  }
+}
