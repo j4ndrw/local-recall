@@ -5,8 +5,9 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "playground:start": "cd packages/playground && pnpm run start",
-    "vectordb:start": "docker compose up"
+    "playground:record": "cd packages/playground && pnpm run record",
+    "playground:query": "cd packages/playground && pnpm run query",
+    "infrastructure:start": "docker compose up"
   },
   "keywords": [],
   "author": "",

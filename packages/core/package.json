@@ -12,6 +12,7 @@
   "license": "ISC",
   "dependencies": {
     "chromadb": "^1.8.1",
+    "kafkajs": "^2.2.4",
     "ollama": "^0.5.1",
     "screenshot-desktop": "^1.15.0"
   },

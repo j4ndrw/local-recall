@@ -1,11 +1,16 @@
 export const DEFAULT_OLLAMA_HOST = "http://localhost:11434";
 export const DEFAULT_CHROMA_HOST = "http://localhost:8000";
 export const DEFAULT_CHROMA_DB = "recall";
+export const DEFAULT_KAFKA_CLIENT_ID = "local-recall";
+export const DEFAULT_KAFKA_BROKER = "kafka:29092";
+export const KAFKA_SCREENSHOT_GROUP_ID = "screenshot-group";
+export const KAFKA_SCREENSHOT_TOPIC = "screenshot-topic";
 
 export const IMAGE_DESCRIPTION_PROMPT = `
-  This is a screenshot of a desktop, describe, in detail, what you see, what windows or programs are open, and what is the user doing.
+  This is a screenshot of a desktop.
+  Describe what you see, what windows or programs are open, and what is the user doing.
+
   If there is a web browser open, describe the contents of the web page.
-  If there is any text popping up, read it.
 
   Refrain from using the word "screenshot" or "desktop" in your description.
 `;
@@ -21,9 +26,10 @@ export const DESCRIPTION_INTERPRETER_PROMPT = (
   Question: ${initialQuery}
   Descriptions: ${queryResults.map((r) => `\t\t- ${r}`)}
 `;
-export const QUERY_INTERPRETER_PROMPT = (query: string) => `
-  Please rephrase the following question such that it is more explicit: "${query}"
-`
+export const QUERY_INTERPRETER_SYSTEM_PROMPT = `
+  You are a helpful assistant that expands a user query into sub-queries.
+  The sub-queries should be mutually exclusive and collectively exhaustive.
+`;
 
 export const IMAGE_DESCRIPTION_MODEL = "llava:7b-v1.6-mistral-q5_1";
 export const INTERPRETER_MODEL = "llama3:8b";

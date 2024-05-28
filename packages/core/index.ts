@@ -9,11 +9,16 @@ import {
   IMAGE_DESCRIPTION_PROMPT,
   INTERPRETER_MODEL,
   DESCRIPTION_INTERPRETER_PROMPT,
-  QUERY_INTERPRETER_PROMPT,
+  QUERY_INTERPRETER_SYSTEM_PROMPT,
+  DEFAULT_KAFKA_CLIENT_ID,
+  DEFAULT_KAFKA_BROKER,
+  KAFKA_SCREENSHOT_GROUP_ID,
+  KAFKA_SCREENSHOT_TOPIC,
 } from "./constants";
 import { Screenshot } from "./types";
 
 import screenshot from "screenshot-desktop";
+import { Consumer, Kafka, Producer } from "kafkajs";
 
 const delay = (ms: number) =>
   new Promise((resolve) => setTimeout(() => resolve(null), ms));
@@ -21,10 +26,18 @@ const delay = (ms: number) =>
 class LocalRecall {
   private screenshotCollection: Collection | null = null;
 
+  private screenshotProducer: Producer | null = null;
+
+  private screenshotConsumer: Consumer | null = null;
+
   constructor(
     private ollamaClient: Ollama = new Ollama({ host: DEFAULT_OLLAMA_HOST }),
     private chromaClient: ChromaClient = new ChromaClient({
       database: DEFAULT_CHROMA_DB,
+    }),
+    private kafkaClient: Kafka = new Kafka({
+      clientId: DEFAULT_KAFKA_CLIENT_ID,
+      brokers: [DEFAULT_KAFKA_BROKER],
     }),
     private options: { query: { maxResultsPerQuery: number } },
   ) { }
@@ -36,6 +49,14 @@ class LocalRecall {
       await this.chromaClient.deleteCollection({ name: COLLECTION_NAME });
     }
     this.screenshotCollection = await this.createScreenshotsCollection();
+
+    this.screenshotProducer = this.kafkaClient.producer();
+    this.screenshotConsumer = this.kafkaClient.consumer({
+      groupId: KAFKA_SCREENSHOT_GROUP_ID,
+    });
+
+    await this.screenshotProducer.connect();
+    await this.screenshotConsumer.subscribe({ topic: KAFKA_SCREENSHOT_TOPIC });
 
     const imageModelPullProgress = await this.ollamaClient.pull({
       model: IMAGE_DESCRIPTION_MODEL,
@@ -115,7 +136,6 @@ class LocalRecall {
         model: options?.model ?? IMAGE_DESCRIPTION_MODEL,
         prompt: options?.prompt ?? IMAGE_DESCRIPTION_PROMPT,
         images: [image],
-        keep_alive: "5m",
       });
       return response.trim();
     };
@@ -138,7 +158,6 @@ class LocalRecall {
       model: options?.model ?? INTERPRETER_MODEL,
       prompt: DESCRIPTION_INTERPRETER_PROMPT(initialQuery, queryResults),
       stream: true,
-      keep_alive: "5m",
     });
     return stream;
   }
@@ -146,8 +165,8 @@ class LocalRecall {
   private async expandQuery(query: string, options?: { model?: string }) {
     const { response } = await this.ollamaClient.generate({
       model: options?.model ?? INTERPRETER_MODEL,
-      prompt: QUERY_INTERPRETER_PROMPT(query),
-      keep_alive: "5m",
+      system: QUERY_INTERPRETER_SYSTEM_PROMPT,
+      prompt: query,
     });
 
     console.info(`Expanded query to: "${response}"`);
@@ -177,46 +196,63 @@ class LocalRecall {
     return aggregates;
   }
 
-  public async record(options: { everyMs: number; maxScreenshotSets: number }) {
-    if (!this.screenshotCollection) await this.init();
+  public async record(options: { everyMs: number; maxScreenshotSets?: number }) {
+    await Promise.all([
+      async () => {
+        console.info("Recording started...");
+        const routine = async () => {
+          const screenshots = await this.takeScreenshots();
+          this.screenshotProducer?.send({
+            topic: KAFKA_SCREENSHOT_TOPIC,
+            messages: screenshots.map((s) => ({ value: JSON.stringify(s) })),
+          });
+          await delay(options.everyMs);
+        }
 
-    console.info("Recording started...");
-    for (let idx = 0; idx < options.maxScreenshotSets; idx++) {
-      const screenshots = await this.takeScreenshots();
-      await this.describeScreenshots(screenshots);
-      await delay(options.everyMs);
-    }
-    console.info("Recording stopped...");
+        if (!options.maxScreenshotSets) while (true) await routine();
+        else for (let idx = 0; idx < options.maxScreenshotSets; idx++) await routine();
+
+        console.info("Recording stopped...");
+      },
+      this.describeScreenshots()
+    ])
   }
 
-  private async describeScreenshots(screenshots: Screenshot[]) {
-    console.info(
-      `Describing screenshots for displays: ${[...new Set(screenshots.map((s) => s.display.name))]}`,
-    );
+  private async describeScreenshots() {
+    await this.screenshotConsumer?.run({
+      eachMessage: async ({ topic, message }) => {
+        if (topic !== KAFKA_SCREENSHOT_TOPIC) return;
 
-    const now = new Date();
-    const timestamp = now.getTime();
-    const descriptions = await this.generateDescriptions(
-      screenshots.map(({ data }) => data),
-    );
-    const embeddings = await this.generateEmbeddings(descriptions);
+        const screenshot = message.value
+          ? (JSON.parse(message.value.toString()) as Screenshot)
+          : null;
+        if (!screenshot) return;
 
-    for (
-      let screenshotIdx = 0;
-      screenshotIdx < screenshots.length;
-      screenshotIdx++
-    ) {
-      const screenshot = screenshots[screenshotIdx]!;
-      const description = descriptions[screenshotIdx]!;
-      const embedding = embeddings[screenshotIdx]!;
+        this.screenshotConsumer?.pause([{ topic }]);
 
-      const id = `${timestamp}-${screenshot.display.name}-${screenshot.display.id}`;
-      await this.screenshotCollection!.add({
-        ids: [id],
-        embeddings: [embedding],
-        documents: [`DATE-AND-TIME: ${now}, DESCRIPTION: ${description}`],
-      });
-    }
+        console.info(
+          `Describing screenshot for display: ${screenshot.display.name}`,
+        );
+
+        const now = new Date();
+        const timestamp = now.getTime();
+        const description = (await this.generateDescriptions([screenshot.data]))[0]!;
+        const embedding = (await this.generateEmbeddings([description]))[0]!;
+
+        const id = `${timestamp}-${screenshot.display.name}-${screenshot.display.id}`;
+        const doc = JSON.stringify({
+          screenshot,
+          description: `DATE-AND-TIME: ${now}, DESCRIPTION: ${description}`,
+        });
+        await this.screenshotCollection?.add({
+          ids: [id],
+          embeddings: [embedding],
+          documents: [doc],
+        });
+
+        this.screenshotConsumer?.resume([{ topic }])
+      },
+    });
   }
 
   public async query(prompt: string, options?: { maxResults?: number }) {
@@ -224,17 +260,22 @@ class LocalRecall {
 
     console.info(`Generating answer to query '${prompt}'...`);
 
+    prompt = await this.expandQuery(prompt);
+
     const now = new Date();
-    // prompt = await this.expandQuery(prompt);
     const embeddings = await this.generateEmbeddings([
       `DATE-AND-TIME: ${now.toISOString()}, DESCRIPTION: ${prompt}`,
     ]);
-    const results = await this.screenshotCollection!.query({
+    const results = await this.screenshotCollection?.query({
       nResults: options?.maxResults ?? this.options.query.maxResultsPerQuery,
       queryEmbeddings: embeddings,
     });
     const documents =
-      results.documents?.[0]?.flatMap((d) => (d ? [d] : [])) ?? [];
+      results?.documents?.[0]?.flatMap((d) =>
+        d
+          ? [JSON.parse(d) as { description: string; screenshot: Screenshot }]
+          : [],
+      ) ?? [];
 
     if (documents.length === 0)
       return {
@@ -245,7 +286,10 @@ class LocalRecall {
 
     console.log(documents);
 
-    const stream = await this.interpretQueryResults(prompt, documents);
+    const stream = await this.interpretQueryResults(
+      prompt,
+      documents.map((d) => d.description),
+    );
     return { stream };
   }
 }

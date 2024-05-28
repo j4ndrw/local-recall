@@ -4,6 +4,8 @@ declare global {
       OLLAMA_HOST: string | undefined;
       CHROMA_HOST: string | undefined;
       CHROMA_DB: string | undefined;
+      KAFKA_CLIENT_ID: string | undefined;
+      KAFKA_BROKER: string | undefined;
     }
   }
 }

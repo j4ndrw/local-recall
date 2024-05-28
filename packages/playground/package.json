@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "description": "",
   "scripts": {
-    "start": "rm -rf dist && tsx ./src/index.ts --tsconfig ./tsconfig.json"
+    "record": "tsx ./src/record.ts --tsconfig ./tsconfig.json",
+    "query": "tsx ./src/query.ts --tsconfig ./tsconfig.json"
   },
   "keywords": [],
   "author": "",
@@ -11,6 +12,7 @@
   "dependencies": {
     "@j4ndrw/local-recall-core": "workspace:*",
     "chromadb": "^1.8.1",
+    "kafkajs": "^2.2.4",
     "ollama": "^0.5.1"
   },
   "devDependencies": {
