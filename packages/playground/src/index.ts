@@ -25,7 +25,7 @@ const localRecall = createLocalRecall(
 
 async function main() {
   await localRecall.init();
-  // await localRecall.record({ everyMs: 1000, maxScreenshotSets: 1 });
+  await localRecall.record({ everyMs: 1000, maxScreenshotSets: 1 });
   const { stream, error } = await localRecall.query(
     "What was I listening to?",
   );
@@ -40,16 +40,16 @@ async function main() {
     }
   }
 
-  // exec(
-  //   `echo "${content.replaceAll('"', '\\"')}" | ../../../external/piper/piper --model ../../../external/piper/en_US-amy-medium.onnx --output-raw | aplay -r 22050 -f S16_LE -t raw - `,
-  //   (err, output) => {
-  //     if (err) {
-  //       console.error("could not execute command: ", err);
-  //       return;
-  //     }
-  //     console.log("Output: \n", output);
-  //   },
-  // );
+  exec(
+    `echo "${content.replaceAll('"', '\\"')}" | ../../../external/piper/piper --model ../../../external/piper/en_US-amy-medium.onnx --output-raw | aplay -r 22050 -f S16_LE -t raw - `,
+    (err, output) => {
+      if (err) {
+        console.error("could not execute command: ", err);
+        return;
+      }
+      console.log("Output: \n", output);
+    },
+  );
 }
 
 main();

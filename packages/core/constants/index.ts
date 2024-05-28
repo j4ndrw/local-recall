@@ -5,7 +5,7 @@ export const DEFAULT_CHROMA_DB = "recall";
 export const IMAGE_DESCRIPTION_PROMPT = `
   This is a screenshot of a desktop, describe, in detail, what you see, what windows or programs are open, and what is the user doing.
   If there is a web browser open, describe the contents of the web page.
-  Make sure to identify what the titles / main headings are, as well as other relevant markup.
+  If there is any text popping up, read it.
 
   Refrain from using the word "screenshot" or "desktop" in your description.
 `;

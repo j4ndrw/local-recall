@@ -225,9 +225,9 @@ class LocalRecall {
     console.info(`Generating answer to query '${prompt}'...`);
 
     const now = new Date();
-    const expandedQuery = await this.expandQuery(prompt);
+    // prompt = await this.expandQuery(prompt);
     const embeddings = await this.generateEmbeddings([
-      `DATE-AND-TIME: ${now.toISOString()}, DESCRIPTION: ${expandedQuery}`,
+      `DATE-AND-TIME: ${now.toISOString()}, DESCRIPTION: ${prompt}`,
     ]);
     const results = await this.screenshotCollection!.query({
       nResults: options?.maxResults ?? this.options.query.maxResultsPerQuery,
@@ -245,7 +245,7 @@ class LocalRecall {
 
     console.log(documents);
 
-    const stream = await this.interpretQueryResults(expandedQuery, documents);
+    const stream = await this.interpretQueryResults(prompt, documents);
     return { stream };
   }
 }
