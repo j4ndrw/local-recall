@@ -25,32 +25,28 @@ const localRecall = createLocalRecall(
 
 async function main() {
   await localRecall.init({ reset: true });
-  // await localRecall.record({ everyMs: 1000, maxScreenshotSets: 1 });
+  await localRecall.record({ everyMs: 1000, maxScreenshotSets: 20 });
   const { stream, error } = await localRecall.query(
-    "I was working on a recall agent earlier today, but I forgot the main idea of the implementation. Could you tell me what it is?",
+    "What was I working on?",
   );
 
-  if (error) {
-    console.log(error);
-    return;
-  }
-
   let content = "";
-  for await (const { response } of stream!) {
-    process.stdout.write(response);
-    content += response;
+  if (error) {
+    content = error;
+  } else {
+    for await (const { response } of stream!) {
+      process.stdout.write(response);
+      content += response;
+    }
   }
 
   exec(
-    `echo "${content.replaceAll('"', '\\"')}" | ~/Downloads/piper/piper --model ~/Downloads/piper/en_US-amy-medium.onnx --output-raw | aplay -r 22050 -f S16_LE -t raw - `,
+    `echo "${content.replaceAll('"', '\\"')}" | ../../../external/piper/piper --model ../../../external/piper/en_US-amy-medium.onnx --output-raw | aplay -r 22050 -f S16_LE -t raw - `,
     (err, output) => {
-      // once the command has completed, the callback function is called
       if (err) {
-        // log and return if we encounter an error
         console.error("could not execute command: ", err);
         return;
       }
-      // log the output received from the command
       console.log("Output: \n", output);
     },
   );

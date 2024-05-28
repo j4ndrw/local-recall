@@ -8,10 +8,10 @@ import {
   IMAGE_DESCRIPTION_MODEL,
   IMAGE_DESCRIPTION_PROMPT,
   INTERPRETER_MODEL,
-  INTERPRETER_PROMPT,
+  DESCRIPTION_INTERPRETER_PROMPT,
+  QUERY_INTERPRETER_PROMPT,
 } from "./constants";
 import { Screenshot } from "./types";
-import { log } from "./utils";
 
 import screenshot from "screenshot-desktop";
 
@@ -30,6 +30,7 @@ class LocalRecall {
   ) { }
 
   async init(options?: { reset?: boolean }) {
+    console.info("Initializing local recall agent");
     if (options?.reset) {
       await this.chromaClient.reset().catch(() => { });
       await this.chromaClient.deleteCollection({ name: COLLECTION_NAME })
@@ -64,15 +65,17 @@ class LocalRecall {
       trackProgress(IMAGE_DESCRIPTION_MODEL, progress);
     }
 
+    process.stdout.clearLine(0);
+    process.stdout.cursorTo(0);
+
     for await (const progress of embeddingModelPullProgress) {
       trackProgress(EMBEDDING_MODEL, progress);
     }
 
-    process.stdout.clearLine(0); // Clear the current line
-    process.stdout.cursorTo(0); // Move cursor to the beginning of the line
+    process.stdout.clearLine(0);
+    process.stdout.cursorTo(0);
   }
 
-  @log("Generating embeddings...")
   private async generateEmbeddings(
     prompts: string[],
     options?: { model?: string } & EmbeddingsRequest["options"],
@@ -89,7 +92,6 @@ class LocalRecall {
     );
   }
 
-  @log("Generating descriptions...")
   private async generateDescriptions(
     images: string[],
     options?: { model?: string; prompt?: string },
@@ -106,7 +108,6 @@ class LocalRecall {
     );
   }
 
-  @log("Interpreting query...")
   private async interpretQueryResults(
     initialQuery: string,
     queryResults: string[],
@@ -114,17 +115,30 @@ class LocalRecall {
   ) {
     const stream = await this.ollamaClient.generate({
       model: options?.model ?? INTERPRETER_MODEL,
-      prompt: INTERPRETER_PROMPT(initialQuery, queryResults),
+      prompt: DESCRIPTION_INTERPRETER_PROMPT(initialQuery, queryResults),
       stream: true,
     });
     return stream;
+  }
+
+  private async expandQuery(
+    query: string,
+    options?: { model?: string },
+  ) {
+    const { response } = await this.ollamaClient.generate({
+      model: options?.model ?? INTERPRETER_MODEL,
+      prompt: QUERY_INTERPRETER_PROMPT(query),
+    });
+
+    console.info(`Expanded query to: "${response}"`)
+
+    return response;
   }
 
   private async createScreenshotsCollection() {
     return this.chromaClient.getOrCreateCollection({ name: COLLECTION_NAME });
   }
 
-  @log("Taking screenshots...")
   private async takeScreenshots(): Promise<Screenshot[]> {
     const displays = await screenshot.listDisplays();
     return Promise.all(
@@ -135,20 +149,23 @@ class LocalRecall {
     );
   }
 
-  @log("Recording started")
   public async record(options: { everyMs: number; maxScreenshotSets: number }) {
     if (!this.screenshotCollection) await this.init();
 
+    console.info("Recording started...")
     const screenshots: Screenshot[] = [];
     for (let idx = 0; idx < options.maxScreenshotSets; idx++) {
       screenshots.push(...(await this.takeScreenshots()));
       await delay(options.everyMs);
     }
+    console.info("Recording stopped...")
 
     await this.describeScreenshots(screenshots);
   }
 
   private async describeScreenshots(screenshots: Screenshot[]) {
+    console.info(`Describing screenshots for displays: ${[...new Set(screenshots.map(s => s.display.name))]}`)
+
     const now = new Date();
     const timestamp = now.getTime();
     const descriptions = await this.generateDescriptions(
@@ -174,13 +191,15 @@ class LocalRecall {
     }
   }
 
-  @log("Querying...")
   public async query(prompt: string, options?: { maxResults?: number }) {
     if (!this.screenshotCollection) await this.init();
 
+    console.info(`Generating answer to query '${prompt}'...`)
+
     const now = new Date();
+    const expandedQuery = await this.expandQuery(prompt);
     const embeddings = await this.generateEmbeddings([
-      `DATE-AND-TIME: ${now.toISOString()}, DESCRIPTION: ${prompt}`,
+      `DATE-AND-TIME: ${now.toISOString()}, DESCRIPTION: ${expandedQuery}`,
     ]);
     const results = await this.screenshotCollection!.query({
       nResults: options?.maxResults ?? this.options.query.maxResultsPerQuery,
@@ -196,7 +215,7 @@ class LocalRecall {
           "I couldn't find any relevant information related to that query.",
       };
 
-    const stream = await this.interpretQueryResults(prompt, documents);
+    const stream = await this.interpretQueryResults(expandedQuery, documents);
     return { stream };
   }
 }
