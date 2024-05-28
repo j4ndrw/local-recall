@@ -33,7 +33,7 @@ class LocalRecall {
     console.info("Initializing local recall agent");
     if (options?.reset) {
       await this.chromaClient.reset().catch(() => { });
-      await this.chromaClient.deleteCollection({ name: COLLECTION_NAME })
+      await this.chromaClient.deleteCollection({ name: COLLECTION_NAME });
     }
     this.screenshotCollection = await this.createScreenshotsCollection();
 
@@ -78,34 +78,50 @@ class LocalRecall {
 
   private async generateEmbeddings(
     prompts: string[],
-    options?: { model?: string } & EmbeddingsRequest["options"],
+    options?: {
+      model?: string;
+      parallel?: boolean;
+    } & EmbeddingsRequest["options"],
   ) {
-    return Promise.all(
-      prompts.map(async (prompt) => {
-        const response = await this.ollamaClient.embeddings({
-          model: options?.model ?? EMBEDDING_MODEL,
-          prompt,
-          options,
-        });
-        return response.embedding;
-      }),
-    );
+    const routine = async (prompt: string) => {
+      const response = await this.ollamaClient.embeddings({
+        model: options?.model ?? EMBEDDING_MODEL,
+        prompt,
+        options,
+      });
+      return response.embedding;
+    };
+
+    if (options?.parallel) return Promise.all(prompts.map(routine));
+
+    const aggregates: Awaited<ReturnType<typeof routine>>[] = [];
+    for await (const prompt of prompts) {
+      aggregates.push(await routine(prompt));
+    }
+    return aggregates;
   }
 
   private async generateDescriptions(
     images: string[],
-    options?: { model?: string; prompt?: string },
+    options?: { model?: string; parallel?: boolean; prompt?: string },
   ) {
-    return Promise.all(
-      images.map(async (image) => {
+    const routine = async (image: string) => {
         const { response } = await this.ollamaClient.generate({
           model: options?.model ?? IMAGE_DESCRIPTION_MODEL,
           prompt: options?.prompt ?? IMAGE_DESCRIPTION_PROMPT,
           images: [image],
+          keep_alive: "5m",
         });
         return response.trim();
-      }),
-    );
+      }
+
+    if (options?.parallel) return Promise.all(images.map(routine));
+
+    const aggregates: Awaited<ReturnType<typeof routine>>[] = [];
+    for await (const image of images) {
+      aggregates.push(await routine(image));
+    }
+    return aggregates;
   }
 
   private async interpretQueryResults(
@@ -117,20 +133,19 @@ class LocalRecall {
       model: options?.model ?? INTERPRETER_MODEL,
       prompt: DESCRIPTION_INTERPRETER_PROMPT(initialQuery, queryResults),
       stream: true,
+      keep_alive: "5m",
     });
     return stream;
   }
 
-  private async expandQuery(
-    query: string,
-    options?: { model?: string },
-  ) {
+  private async expandQuery(query: string, options?: { model?: string }) {
     const { response } = await this.ollamaClient.generate({
       model: options?.model ?? INTERPRETER_MODEL,
       prompt: QUERY_INTERPRETER_PROMPT(query),
+      keep_alive: "5m",
     });
 
-    console.info(`Expanded query to: "${response}"`)
+    console.info(`Expanded query to: "${response}"`);
 
     return response;
   }
@@ -139,32 +154,40 @@ class LocalRecall {
     return this.chromaClient.getOrCreateCollection({ name: COLLECTION_NAME });
   }
 
-  private async takeScreenshots(): Promise<Screenshot[]> {
+  private async takeScreenshots(options?: { parallel?: boolean}): Promise<Screenshot[]> {
     const displays = await screenshot.listDisplays();
-    return Promise.all(
-      displays.map(async (display) => {
-        const s = await screenshot({ format: "png", screen: display.id });
-        return { data: s.toString("base64"), display };
-      }),
-    );
+    const routine = async (display: typeof displays[number]) => {
+      const s = await screenshot({ format: "png", screen: display.id });
+      return { data: s.toString("base64"), display };
+    }
+
+    if (options?.parallel) return Promise.all(displays.map(routine));
+
+    const aggregates: Awaited<ReturnType<typeof routine>>[] = [];
+    for await (const display of displays) {
+      aggregates.push(await routine(display));
+    }
+    return aggregates;
   }
 
   public async record(options: { everyMs: number; maxScreenshotSets: number }) {
     if (!this.screenshotCollection) await this.init();
 
-    console.info("Recording started...")
+    console.info("Recording started...");
     const screenshots: Screenshot[] = [];
     for (let idx = 0; idx < options.maxScreenshotSets; idx++) {
       screenshots.push(...(await this.takeScreenshots()));
       await delay(options.everyMs);
     }
-    console.info("Recording stopped...")
+    console.info("Recording stopped...");
 
     await this.describeScreenshots(screenshots);
   }
 
   private async describeScreenshots(screenshots: Screenshot[]) {
-    console.info(`Describing screenshots for displays: ${[...new Set(screenshots.map(s => s.display.name))]}`)
+    console.info(
+      `Describing screenshots for displays: ${[...new Set(screenshots.map((s) => s.display.name))]}`,
+    );
 
     const now = new Date();
     const timestamp = now.getTime();
@@ -194,7 +217,7 @@ class LocalRecall {
   public async query(prompt: string, options?: { maxResults?: number }) {
     if (!this.screenshotCollection) await this.init();
 
-    console.info(`Generating answer to query '${prompt}'...`)
+    console.info(`Generating answer to query '${prompt}'...`);
 
     const now = new Date();
     const expandedQuery = await this.expandQuery(prompt);
