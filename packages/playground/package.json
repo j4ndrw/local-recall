@@ -3,8 +3,7 @@
   "version": "1.0.0",
   "description": "",
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --platform=node --target=node18.18 --outdir=dist --external:cohere-ai --sourcemap",
-    "start": "rm -rf dist && pnpm run build && node ./dist/index.js"
+    "start": "rm -rf dist && tsx ./src/index.ts --tsconfig ./tsconfig.json"
   },
   "keywords": [],
   "author": "",
@@ -16,6 +15,6 @@
   },
   "devDependencies": {
     "dotenv": "^16.4.5",
-    "esbuild": "^0.21.4"
+    "tsx": "^4.11.0"
   }
 }

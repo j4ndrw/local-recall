@@ -45,6 +45,10 @@ class LocalRecall {
       model: EMBEDDING_MODEL,
       stream: true,
     });
+    const interpreterModelPullProgress = await this.ollamaClient.pull({
+      model: INTERPRETER_MODEL,
+      stream: true,
+    });
 
     // https://github.com/ollama/ollama-js/blob/main/examples/pull-progress/pull.ts
     const trackProgress = (model: string, progress: ProgressResponse) => {
@@ -65,11 +69,12 @@ class LocalRecall {
       trackProgress(IMAGE_DESCRIPTION_MODEL, progress);
     }
 
-    process.stdout.clearLine(0);
-    process.stdout.cursorTo(0);
-
     for await (const progress of embeddingModelPullProgress) {
       trackProgress(EMBEDDING_MODEL, progress);
+    }
+
+    for await (const progress of interpreterModelPullProgress) {
+      trackProgress(INTERPRETER_MODEL, progress);
     }
 
     process.stdout.clearLine(0);
@@ -106,14 +111,14 @@ class LocalRecall {
     options?: { model?: string; parallel?: boolean; prompt?: string },
   ) {
     const routine = async (image: string) => {
-        const { response } = await this.ollamaClient.generate({
-          model: options?.model ?? IMAGE_DESCRIPTION_MODEL,
-          prompt: options?.prompt ?? IMAGE_DESCRIPTION_PROMPT,
-          images: [image],
-          keep_alive: "5m",
-        });
-        return response.trim();
-      }
+      const { response } = await this.ollamaClient.generate({
+        model: options?.model ?? IMAGE_DESCRIPTION_MODEL,
+        prompt: options?.prompt ?? IMAGE_DESCRIPTION_PROMPT,
+        images: [image],
+        keep_alive: "5m",
+      });
+      return response.trim();
+    };
 
     if (options?.parallel) return Promise.all(images.map(routine));
 
@@ -154,12 +159,14 @@ class LocalRecall {
     return this.chromaClient.getOrCreateCollection({ name: COLLECTION_NAME });
   }
 
-  private async takeScreenshots(options?: { parallel?: boolean}): Promise<Screenshot[]> {
+  private async takeScreenshots(options?: {
+    parallel?: boolean;
+  }): Promise<Screenshot[]> {
     const displays = await screenshot.listDisplays();
-    const routine = async (display: typeof displays[number]) => {
-      const s = await screenshot({ format: "png", screen: display.id });
+    const routine = async (display: (typeof displays)[number]) => {
+      const s = await screenshot({ format: "jpeg", screen: display.id });
       return { data: s.toString("base64"), display };
-    }
+    };
 
     if (options?.parallel) return Promise.all(displays.map(routine));
 
@@ -174,14 +181,12 @@ class LocalRecall {
     if (!this.screenshotCollection) await this.init();
 
     console.info("Recording started...");
-    const screenshots: Screenshot[] = [];
     for (let idx = 0; idx < options.maxScreenshotSets; idx++) {
-      screenshots.push(...(await this.takeScreenshots()));
+      const screenshots = await this.takeScreenshots();
+      await this.describeScreenshots(screenshots);
       await delay(options.everyMs);
     }
     console.info("Recording stopped...");
-
-    await this.describeScreenshots(screenshots);
   }
 
   private async describeScreenshots(screenshots: Screenshot[]) {
@@ -229,7 +234,7 @@ class LocalRecall {
       queryEmbeddings: embeddings,
     });
     const documents =
-      results.documents[0]?.flatMap((d) => (d ? [d] : [])) ?? [];
+      results.documents?.[0]?.flatMap((d) => (d ? [d] : [])) ?? [];
 
     if (documents.length === 0)
       return {
@@ -237,6 +242,8 @@ class LocalRecall {
         error:
           "I couldn't find any relevant information related to that query.",
       };
+
+    console.log(documents);
 
     const stream = await this.interpretQueryResults(expandedQuery, documents);
     return { stream };
