@@ -33,7 +33,7 @@ const localRecall = createLocalRecall(
 async function main() {
   await localRecall.init();
   const { stream, error } = await localRecall.query(
-    "What was I listening to?",
+    "What can you see?",
   );
 
   let content = "";

@@ -2,7 +2,7 @@ export const DEFAULT_OLLAMA_HOST = "http://localhost:11434";
 export const DEFAULT_CHROMA_HOST = "http://localhost:8000";
 export const DEFAULT_CHROMA_DB = "recall";
 export const DEFAULT_KAFKA_CLIENT_ID = "local-recall";
-export const DEFAULT_KAFKA_BROKER = "kafka:29092";
+export const DEFAULT_KAFKA_BROKER = "localhost:9091";
 export const KAFKA_SCREENSHOT_GROUP_ID = "screenshot-group";
 export const KAFKA_SCREENSHOT_TOPIC = "screenshot-topic";
 

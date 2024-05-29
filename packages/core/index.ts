@@ -43,7 +43,7 @@ class LocalRecall {
   ) { }
 
   async init(options?: { reset?: boolean }) {
-    console.info("Initializing local recall agent");
+    console.log("Initializing local recall agent");
     if (options?.reset) {
       await this.chromaClient.reset().catch(() => { });
       await this.chromaClient.deleteCollection({ name: COLLECTION_NAME });
@@ -169,7 +169,7 @@ class LocalRecall {
       prompt: query,
     });
 
-    console.info(`Expanded query to: "${response}"`);
+    console.log(`Expanded query to: "${response}"`);
 
     return response;
   }
@@ -196,10 +196,13 @@ class LocalRecall {
     return aggregates;
   }
 
-  public async record(options: { everyMs: number; maxScreenshotSets?: number }) {
+  public async record(options: {
+    everyMs: number;
+    maxScreenshotSets?: number;
+  }) {
     await Promise.all([
       async () => {
-        console.info("Recording started...");
+        console.log("Recording started...");
         const routine = async () => {
           const screenshots = await this.takeScreenshots();
           this.screenshotProducer?.send({
@@ -207,36 +210,42 @@ class LocalRecall {
             messages: screenshots.map((s) => ({ value: JSON.stringify(s) })),
           });
           await delay(options.everyMs);
-        }
+        };
 
         if (!options.maxScreenshotSets) while (true) await routine();
-        else for (let idx = 0; idx < options.maxScreenshotSets; idx++) await routine();
+        else
+          for (let idx = 0; idx < options.maxScreenshotSets; idx++)
+            await routine();
 
-        console.info("Recording stopped...");
+        console.log("Recording stopped...");
       },
-      this.describeScreenshots()
-    ])
+      this.describeScreenshots(),
+    ]);
   }
 
   private async describeScreenshots() {
     await this.screenshotConsumer?.run({
-      eachMessage: async ({ topic, message }) => {
+      partitionsConsumedConcurrently: 1,
+      eachMessage: async ({ topic, message, pause }) => {
         if (topic !== KAFKA_SCREENSHOT_TOPIC) return;
 
         const screenshot = message.value
           ? (JSON.parse(message.value.toString()) as Screenshot)
           : null;
+        console.log({ message });
         if (!screenshot) return;
 
-        this.screenshotConsumer?.pause([{ topic }]);
+        const resume = pause();
 
-        console.info(
+        console.log(
           `Describing screenshot for display: ${screenshot.display.name}`,
         );
 
         const now = new Date();
         const timestamp = now.getTime();
-        const description = (await this.generateDescriptions([screenshot.data]))[0]!;
+        const description = (
+          await this.generateDescriptions([screenshot.data])
+        )[0]!;
         const embedding = (await this.generateEmbeddings([description]))[0]!;
 
         const id = `${timestamp}-${screenshot.display.name}-${screenshot.display.id}`;
@@ -250,7 +259,7 @@ class LocalRecall {
           documents: [doc],
         });
 
-        this.screenshotConsumer?.resume([{ topic }])
+        resume();
       },
     });
   }
@@ -258,7 +267,7 @@ class LocalRecall {
   public async query(prompt: string, options?: { maxResults?: number }) {
     if (!this.screenshotCollection) await this.init();
 
-    console.info(`Generating answer to query '${prompt}'...`);
+    console.log(`Generating answer to query '${prompt}'...`);
 
     prompt = await this.expandQuery(prompt);
 
