@@ -1,40 +1,35 @@
 import { createLocalRecall } from "@j4ndrw/local-recall-core";
-import {
-  DEFAULT_CHROMA_DB,
-  DEFAULT_CHROMA_HOST,
-  DEFAULT_KAFKA_BROKER,
-  DEFAULT_KAFKA_CLIENT_ID,
-  DEFAULT_OLLAMA_HOST,
-} from "@j4ndrw/local-recall-core/constants";
-
-import { ChromaClient } from "chromadb";
-import { Ollama } from "ollama";
-
 import { exec } from "child_process";
 
-import dotenv from "dotenv";
 import { Kafka } from "kafkajs";
+import { DEFAULT_KAFKA_BROKER, DEFAULT_KAFKA_CLIENT_ID } from "@j4ndrw/local-recall-core/src/modules/clients/kafka/constants";
+
+import { ChromaClient } from "chromadb";
+import { DEFAULT_CHROMA_DB, DEFAULT_CHROMA_HOST } from "@j4ndrw/local-recall-core/src/modules/clients/chroma/constants";
+
+import { Ollama } from "ollama";
+import { DEFAULT_OLLAMA_HOST } from "@j4ndrw/local-recall-core/src/modules/clients/ollama/constants";
+
+import dotenv from "dotenv";
 
 dotenv.config();
 
-const localRecall = createLocalRecall(
-  new Ollama({ host: process.env.OLLAMA_HOST ?? DEFAULT_OLLAMA_HOST }),
-  new ChromaClient({
+const localRecall = createLocalRecall({
+  ollamaClient: new Ollama({
+    host: process.env.OLLAMA_HOST ?? DEFAULT_OLLAMA_HOST,
+  }),
+  chromaClient: new ChromaClient({
     database: process.env.CHROMA_DB ?? DEFAULT_CHROMA_DB,
     path: process.env.CHROMA_HOST ?? DEFAULT_CHROMA_HOST,
   }),
-  new Kafka({
+  kafkaClient: new Kafka({
     clientId: process.env.KAFKA_CLIENT_ID ?? DEFAULT_KAFKA_CLIENT_ID,
-    brokers: [process.env.KAFKA_BROKER ?? DEFAULT_KAFKA_BROKER]
+    brokers: [process.env.KAFKA_BROKER ?? DEFAULT_KAFKA_BROKER],
   }),
-  { query: { maxResultsPerQuery: 3 } },
-);
+});
 
 async function main() {
-  await localRecall.init();
-  const { stream, error } = await localRecall.query(
-    "What can you see?",
-  );
+  const { stream, error } = await localRecall.query("What music did I listen to today?");
 
   let content = "";
   if (error) {
