@@ -7,6 +7,7 @@ export const create = () => {
   const init = async () => {
     consumer.subscribe({
       topic: kafkaClientModule.config.KAFKA_SCREENSHOT_TOPIC,
+      fromBeginning: true,
     });
     return consumer;
   };

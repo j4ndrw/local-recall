@@ -7,14 +7,13 @@ import {
   QUERY_INTERPRETER_SYSTEM_PROMPT,
 } from "./config";
 import { RecordOptions, Screenshot } from "../../types";
-import { delay } from "../../utils";
+import { delay, logger } from "../../utils";
 
 export const generateDescription = async (
   image: string,
   options?: {
     model?: string;
     prompt?: string;
-    debug?: boolean;
   },
 ) => {
   const response = await ollamaClientModule.getClient().generate({
@@ -26,7 +25,7 @@ export const generateDescription = async (
 
   let description = "";
   for await (const { response: chunk } of response) {
-    if (options?.debug) process.stdout.write(chunk);
+    if (process.env["LOCAL_RECALL_DEBUG"]) process.stdout.write(chunk);
     description += chunk;
   }
 
@@ -68,7 +67,7 @@ export const expandQuery = async (
     prompt: query,
   });
 
-  console.log(`Expanded query to: "${response}"`);
+  logger.debug(`Expanded query to: "${response}"`);
 
   return response;
 };
@@ -84,7 +83,7 @@ export const record = async (options: RecordOptions) => {
   const screenshotConsumer = await screenshotModule.consumer.create().init();
   const screenshotProducer = await screenshotModule.producer.create().init();
 
-  console.log("Recording started...");
+  logger.debug("Recording started...");
 
   await screenshotModule.behaviour.describeOnDemand(
     screenshotConsumer,
@@ -116,7 +115,7 @@ export const query = async (
 
   const screenshotCollection = await screenshotModule.collection.create();
 
-  console.log(`Generating answer to query '${prompt}'...`);
+  logger.debug(`Generating answer to query '${prompt}'...`);
 
   if (options?.expandQuery) prompt = await expandQuery(prompt);
 

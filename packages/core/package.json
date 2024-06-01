@@ -15,7 +15,8 @@
     "date-fns": "^3.6.0",
     "kafkajs": "^2.2.4",
     "ollama": "^0.5.1",
-    "screenshot-desktop": "^1.15.0"
+    "screenshot-desktop": "^1.15.0",
+    "sharp": "^0.33.4"
   },
   "devDependencies": {
     "@types/node": "^20.12.12",
