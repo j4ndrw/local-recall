@@ -1,6 +1,9 @@
 export const DEFAULT_OLLAMA_HOST = "http://localhost:11434";
+
 export const DEFAULT_CHROMA_HOST = "http://localhost:8000";
 export const DEFAULT_CHROMA_DB = "recall";
+export const COLLECTION_NAME = "recall-screenshots";
+
 export const DEFAULT_KAFKA_CLIENT_ID = "local-recall";
 export const DEFAULT_KAFKA_BROKER = "localhost:9091";
 export const KAFKA_SCREENSHOT_GROUP_ID = "screenshot-group";
@@ -31,8 +34,6 @@ export const QUERY_INTERPRETER_SYSTEM_PROMPT = `
   The sub-queries should be mutually exclusive and collectively exhaustive.
 `;
 
-export const IMAGE_DESCRIPTION_MODEL = "llava:7b-v1.6-mistral-q5_1";
+export const IMAGE_DESCRIPTION_MODEL = "llava:7b-v1.6-mistral-q2_K";
 export const INTERPRETER_MODEL = "llama3:8b";
 export const EMBEDDING_MODEL = "mxbai-embed-large";
-
-export const COLLECTION_NAME = "recall-screenshots";

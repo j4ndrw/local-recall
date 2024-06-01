@@ -5,3 +5,8 @@ export type Screenshot = {
     name: string;
   };
 };
+
+export type RecordOptions = {
+  everyMs: number;
+  maxScreenshotSets?: number;
+};

@@ -10,8 +10,6 @@ import {
 import { ChromaClient } from "chromadb";
 import { Ollama } from "ollama";
 
-import { exec } from "child_process";
-
 import dotenv from "dotenv";
 import { Kafka } from "kafkajs";
 
@@ -32,7 +30,7 @@ const localRecall = createLocalRecall(
 
 async function main() {
   await localRecall.init();
-  await localRecall.record({ everyMs: 1000, maxScreenshotSets: 1 });
+  await localRecall.record({ everyMs: 1000 });
 }
 
 main();

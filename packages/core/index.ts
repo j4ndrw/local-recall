@@ -15,10 +15,11 @@ import {
   KAFKA_SCREENSHOT_GROUP_ID,
   KAFKA_SCREENSHOT_TOPIC,
 } from "./constants";
-import { Screenshot } from "./types";
+import { RecordOptions, Screenshot } from "./types";
 
 import screenshot from "screenshot-desktop";
-import { Consumer, Kafka, Producer } from "kafkajs";
+import { Consumer, Kafka, Message, Producer } from "kafkajs";
+import { fromUnixTime, getUnixTime } from "date-fns";
 
 const delay = (ms: number) =>
   new Promise((resolve) => setTimeout(() => resolve(null), ms));
@@ -129,15 +130,26 @@ class LocalRecall {
 
   private async generateDescriptions(
     images: string[],
-    options?: { model?: string; parallel?: boolean; prompt?: string },
+    options?: {
+      model?: string;
+      parallel?: boolean;
+      prompt?: string;
+      displayDescription?: boolean;
+    },
   ) {
     const routine = async (image: string) => {
-      const { response } = await this.ollamaClient.generate({
+      const response = await this.ollamaClient.generate({
         model: options?.model ?? IMAGE_DESCRIPTION_MODEL,
         prompt: options?.prompt ?? IMAGE_DESCRIPTION_PROMPT,
         images: [image],
+        stream: true,
       });
-      return response.trim();
+      let description = "";
+      for await (const token of response) {
+        if (options?.displayDescription) process.stdout.write(token.response);
+        description += token.response;
+      }
+      return description;
     };
 
     if (options?.parallel) return Promise.all(images.map(routine));
@@ -196,55 +208,58 @@ class LocalRecall {
     return aggregates;
   }
 
-  public async record(options: {
-    everyMs: number;
-    maxScreenshotSets?: number;
-  }) {
-    await Promise.all([
-      async () => {
-        console.log("Recording started...");
-        const routine = async () => {
-          const screenshots = await this.takeScreenshots();
-          this.screenshotProducer?.send({
-            topic: KAFKA_SCREENSHOT_TOPIC,
-            messages: screenshots.map((s) => ({ value: JSON.stringify(s) })),
-          });
-          await delay(options.everyMs);
-        };
+  public async record(options: RecordOptions) {
+    console.log("Recording started...");
 
-        if (!options.maxScreenshotSets) while (true) await routine();
-        else
-          for (let idx = 0; idx < options.maxScreenshotSets; idx++)
-            await routine();
+    await this.describeScreenshotsOnDemand();
 
-        console.log("Recording stopped...");
-      },
-      this.describeScreenshots(),
-    ]);
+    if (!options.maxScreenshotSets) {
+      while (true) {
+        await this.streamScreenshots();
+        await delay(options.everyMs);
+      }
+    } else {
+      for (let idx = 0; idx < options.maxScreenshotSets; idx++) {
+        await this.streamScreenshots();
+        await delay(options.everyMs);
+      }
+    }
   }
 
-  private async describeScreenshots() {
+  private async streamScreenshots() {
+    const screenshots = await this.takeScreenshots();
+    await this.screenshotProducer?.send({
+      topic: KAFKA_SCREENSHOT_TOPIC,
+      messages: screenshots.map((s) => ({
+        value: JSON.stringify(s),
+        timestamp: getUnixTime(new Date()).toString(),
+      }) as Message),
+    });
+  }
+
+  private async describeScreenshotsOnDemand() {
     await this.screenshotConsumer?.run({
       partitionsConsumedConcurrently: 1,
-      eachMessage: async ({ topic, message, pause }) => {
+      eachMessage: async ({ topic, message }) => {
         if (topic !== KAFKA_SCREENSHOT_TOPIC) return;
 
+        const timestamp = message.timestamp;
         const screenshot = message.value
           ? (JSON.parse(message.value.toString()) as Screenshot)
           : null;
-        console.log({ message });
         if (!screenshot) return;
 
-        const resume = pause();
+        this.screenshotConsumer?.pause([{ topic }]);
 
         console.log(
-          `Describing screenshot for display: ${screenshot.display.name}`,
+          `Describing screenshot taken at ${fromUnixTime(+timestamp)} for display: ${screenshot.display.name}`,
         );
 
         const now = new Date();
-        const timestamp = now.getTime();
         const description = (
-          await this.generateDescriptions([screenshot.data])
+          await this.generateDescriptions([screenshot.data], {
+            displayDescription: true,
+          })
         )[0]!;
         const embedding = (await this.generateEmbeddings([description]))[0]!;
 
@@ -259,7 +274,7 @@ class LocalRecall {
           documents: [doc],
         });
 
-        resume();
+        this.screenshotConsumer?.resume([{ topic }]);
       },
     });
   }
@@ -286,19 +301,19 @@ class LocalRecall {
           : [],
       ) ?? [];
 
-    if (documents.length === 0)
+    if (documents.length === 0) {
       return {
         stream: null,
         error:
           "I couldn't find any relevant information related to that query.",
       };
-
-    console.log(documents);
+    }
 
     const stream = await this.interpretQueryResults(
       prompt,
       documents.map((d) => d.description),
     );
+
     return { stream };
   }
 }
