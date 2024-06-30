@@ -2,7 +2,7 @@
 
 ## Credit
 
-This project is an adaptation of [https://github.com/AbdBarho/ReRecall](ReRecall by AbdBarho).
+This project is an adaptation of [ReRecall by AbdBarho](https://github.com/AbdBarho/ReRecall).
 Kudos to them for starting this project.
 
 ## Description
